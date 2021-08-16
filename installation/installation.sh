@@ -187,10 +187,10 @@ echo 'export PATH=$PATH:${home_dir}/miniconda3/bin' >> ~/.bashrc
 . ${home_dir}/.bashrc
 
 #Need to call in separate shell
-TMPFILE=${install_script_dir}/tempfile
-echo ". ${home_dir}/.bashrc" > tempfile
-echo "conda create --name py36_biopython python=3.6 biopython -y" >> tempfile
-echo "rm -f $TMPFILE" >> tempfile
+#TMPFILE=${install_script_dir}/tempfile
+#echo ". ${home_dir}/.bashrc" > tempfile
+conda create --name py36_biopython python=3.6 biopython -y
+#echo "rm -f $TMPFILE" >> tempfile
 
 bash --rcfile $TMPFILE
 
