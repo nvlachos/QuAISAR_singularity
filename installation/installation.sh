@@ -184,6 +184,7 @@ fi
 home_dir=$(echo $HOME)
 echo "prefix: ${home_dir}/miniconda3/envs/py36_biopython" >> ${install_script_dir}/installation/py36_biopython.yml
 echo 'export PATH=$PATH:${home_dir}/miniconda3/bin' >> ~/.bashrc
+. ${home_dir}/.bashrc
 
 #Need to call in separate shell
 TMPFILE=${install_script_dir}/tempfile
