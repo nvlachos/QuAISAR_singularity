@@ -799,7 +799,7 @@ while IFS= read -r bug_lines || [ -n "$bug_lines" ]; do
 	mmb_bugs["${bug_name}"]="${bug_size}"
 done < ${databases}/MMB_Bugs.txt
 genus_initial="${dec_genus:0:1}"
-assembly_ID="${genus_initial}. ${dec_species}"
+assembly_ID="${genus_initial}.${dec_species}"
 #echo "${mmb_bugs[@]}"
 #echo "${assembly_ID}"
 if [[ ! -z "${mmb_bugs[${assembly_ID}]}" ]]; then
