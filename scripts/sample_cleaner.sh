@@ -36,6 +36,9 @@ else
 	echo "Cleaning ${1}"
 fi
 
+# Get path of this script so any other scripts calls can be referential
+self_path=$( realpath "$0"  ) && dirname "$self_path"
+
 # Set main sample folder to clean
 sample_folder="${1}"
 echo "Source - ${sample_folder}"
@@ -47,9 +50,9 @@ if [ -d "${sample_folder}/ANI/localANIDB" ]; then
 	echo "removing localANIDB"
 	rm -r "${sample_folder}/ANI/localANIDB"
 fi
-if [ -d "${sample_folder}/ANI/localANIDB" ]; then
+if [ -d "${sample_folder}/ANI/localANIDB_REFSEQ" ]; then
 	echo "removing localANIDB_REFSEQ"
-	rm -r "${sample_folder}/ANI/localANIDB"
+	rm -r "${sample_folder}/ANI/localANIDB_REFSEQ"
 fi
 if [ -d "${sample_folder}/ANI/localANIDB_full" ]; then
 	echo "removing localANIDB_full"
@@ -59,6 +62,10 @@ if [ -d "${sample_folder}/ANI/temp" ]; then
 	echo "removing temp"
 	rm -r "${sample_folder}/ANI/temp"
 fi
+#if [ -d "${sample_folder}/ANI/aniM_REFSEQ" ]; then
+#	echo "removing nucmers"
+#	rm -r "${sample_folder}/ANI/aniM_REFSEQ/nucmer_output.tar.gz"
+#fi
 # Remove the hmmer output from the BUSCO folder
 echo "Cleaning BUSCO"
 if [ -d "${sample_folder}/BUSCO/hmmer_output" ]; then
@@ -69,7 +76,7 @@ fi
 echo "Cleaning Assembly Folder"
 if [ -d "${sample_folder}/Assembly" ]; then
 	echo "Using Gulviks SPAdes cleaner on Assembly"
-	${src}/gulvic_SPAdes_cleaner.sh "${sample_folder}/Assembly"
+	${self_path}/gulvic_SPAdes_cleaner.sh "${sample_folder}/Assembly"
 	rm "${sample_folder}/Assembly/${sample_name}_scaffolds_trimmed_original.fasta"
 fi
 
@@ -84,39 +91,45 @@ if [ -d "${sample_folder}/Assembly_Stats" ]; then
 	rm -r "${sample_folder}/Assembly_Stats/basic_stats"
 fi
 
-# Cleaning Assembly Stats plasFlow folder of extra unused files made by QUAST
-echo "Cleaning Assembly Stats plasFlow Folder"
-if [ -d "${sample_folder}/Assembly_Stats_plasFlow" ]; then
-	rm "${sample_folder}/Assembly_Stats_plasFlow/${sample_name}_report.txt"
-	rm "${sample_folder}/Assembly_Stats_plasFlow/report.tex"
-	rm "${sample_folder}/Assembly_Stats_plasFlow/transposed_report.t"*
-	rm "${sample_folder}/Assembly_Stats_plasFlow/icarus.html"
-	rm -r "${sample_folder}/Assembly_Stats_plasFlow/icarus_viewers"
-	rm -r "${sample_folder}/Assembly_Stats_plasFlow/basic_stats"
-fi
+# # Cleaning Assembly Stats plasFlow folder of extra unused files made by QUAST
+# echo "Cleaning Assembly Stats plasFlow Folder"
+# if [ -d "${sample_folder}/Assembly_Stats_plasFlow" ]; then
+# 	rm "${sample_folder}/Assembly_Stats_plasFlow/${sample_name}_report.txt"
+# 	rm "${sample_folder}/Assembly_Stats_plasFlow/report.tex"
+# 	rm "${sample_folder}/Assembly_Stats_plasFlow/transposed_report.t"*
+# 	rm "${sample_folder}/Assembly_Stats_plasFlow/icarus.html"
+# 	rm -r "${sample_folder}/Assembly_Stats_plasFlow/icarus_viewers"
+# 	rm -r "${sample_folder}/Assembly_Stats_plasFlow/basic_stats"
+# fi
 
 # Clean kraken folder (only for reads as it is MUCH larger)
 if [ -d "${sample_folder}/kraken/preAssembly" ]; then
 	gzip ${sample_folder}/kraken/preAssembly/${sample_name}_paired.classified
+	#rm ${sample_folder}/kraken/preAssembly/${sample_name}_paired.classified
 	gzip ${sample_folder}/kraken/preAssembly/${sample_name}_paired.kraken
+fi
+
+# Clean kraken folder (only for reads as it is MUCH larger)
+if [ -d "${sample_folder}/kraken/postAssembly" ]; then
 	gzip ${sample_folder}/kraken/postAssembly/${sample_name}_assembled.classified
+	#rm ${sample_folder}/kraken/postAssembly/${sample_name}_assembled.classified
 	gzip ${sample_folder}/kraken/postAssembly/${sample_name}_assembled.kraken
 fi
 
-# Clean plasFlow folder of filtered reads
-if [[ -d "${sample_folder}/plasFlow/filtered_reads_70" ]]; then
-	rm -r "${sample_folder}/plasFlow/filtered_reads_70"
-fi
+# # Clean plasFlow folder of filtered reads
+# if [[ -d "${sample_folder}/plasFlow/filtered_reads_70" ]]; then
+# 	rm -r "${sample_folder}/plasFlow/filtered_reads_70"
+# fi
 
 # Clean plasmidFinder folder
 if [[ -d "${sample_folder}/plasmidFinder/tmp" ]]; then
 	rm -r "${sample_folder}/plasmidFinder/tmp"
 fi
 
-# Clean plasmidFinder folder
-if [[ -d "${sample_folder}/plasmidFinder_on_plasFlow/tmp" ]]; then
-	rm -r "${sample_folder}/plasmidFinder_on_plasFlow/tmp"
-fi
+# # Clean plasmidFinder folder
+# if [[ -d "${sample_folder}/plasmidFinder_on_plasFlow/tmp" ]]; then
+# 	rm -r "${sample_folder}/plasmidFinder_on_plasFlow/tmp"
+# fi
 
 # Remove hmm_output folder from BUSCO analysis if found
 echo "Cleaning BUSCO Folder"
@@ -124,12 +137,12 @@ if [ -d "${sample_folder}/BUSCO/hmm_output" ]; then
 	echo "Deleting hmm_output"
 	rm -r "${sample_folder}/BUSCO/hmm_output"
 fi
-echo "Cleaning GOTTCHA Folder"
-# Remove splitrim fodler from gottcha output, if found
-if [ -d "${sample_folder}/gottcha/gottcha_S/${sample_name}_temp/splitrim" ]; then
-	echo "Deleting splitrim folder"
-	rm -r "${sample_folder}/gottcha/gottcha_S/${sample_name}_temp/splitrim"
-fi
+# echo "Cleaning GOTTCHA Folder"
+# # Remove splitrim fodler from gottcha output, if found
+# if [ -d "${sample_folder}/gottcha/gottcha_S/${sample_name}_temp/splitrim" ]; then
+# 	echo "Deleting splitrim folder"
+# 	rm -r "${sample_folder}/gottcha/gottcha_S/${sample_name}_temp/splitrim"
+# fi
 # Removed intermediate folder that has reads with no adapters, but have not been trimmed yet
 echo "Cleaning Adapter Folder"
 if [ -d "${sample_folder}/removedAdapters" ]; then
@@ -285,4 +298,4 @@ fi
 #	clumpify in1="${sample_folder}/trimmed/${sample_name}_R1_001.paired.fq.gz" in2="${sample_folder}/trimmed/${sample_name}_R2_001.paired.fq.gz" out1="${sample_folder}/trimmed/${sample_name}_R1_001.paired.fq.clumped.gz" out2="${sample_folder}/trimmed/${sample_name}_R2_001.paired.fq.clumped.gz" reorder
 #fi
 
-echo "Sample ${1} should now be clean" >> "${output_dir}/cleaned_sample_list.txt"
+# echo "Sample ${1} should now be clean" >> "${output_dir}/cleaned_sample_list.txt"

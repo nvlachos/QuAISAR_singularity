@@ -114,12 +114,12 @@ Check_source() {
 			fi
 		fi
 	fi
-	if [[ "${start_at}" -le 3 ]];then
-		if [[ -s "${OUTDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" ]]; then
-			do_GOTTCHA
-			return
-		fi
-	fi
+	# if [[ "${start_at}" -le 3 ]];then
+	# 	if [[ -s "${OUTDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" ]]; then
+	# 		do_GOTTCHA
+	# 		return
+	# 	fi
+	# fi
 	if [[ "${start_at}" -le 4 ]]; then
 		if [[ -s "${OUTDATADIR}/kraken/postAssembly/${sample_name}_kraken_summary_assembled_BP.txt" ]]; then
 			do_Kraken
@@ -134,21 +134,19 @@ do_ANI() {
 	source="ANI"
 	#echo "${source}"
 
-    SCRIPT_DIR=$(dirname "$(readlink -f "$0")") # get dir of current script
-    source ${SCRIPT_DIR}/get_latest_DBs.sh ${databases}
+  SCRIPT_DIR=$(dirname "$(readlink -f "$0")") # get dir of current script
+  source ${SCRIPT_DIR}/get_latest_DBs.sh ${databases}
 	refseq_ANI_date=$(get_ANI_REFSEQ_Date)
 	#echo "${refseq_ANI_date}"
 	if [[ -f "${OUTDATADIR}/ANI/best_ANI_hits_ordered(${sample_name}_vs_REFSEQ_${refseq_ANI_date}).txt" ]]; then
 		source_file="${OUTDATADIR}/ANI/best_ANI_hits_ordered(${sample_name}_vs_REFSEQ_${refseq_ANI_date}).txt"
-	elif [[ -f "${OUTDATADIR}/ANI/best_ANI_hits_ordered(${sample_name}_vs_OSII).txt" ]]; then
-		source_file="${OUTDATADIR}/ANI/best_ANI_hits_ordered(${sample_name}_vs_OSII).txt"
+		sample_name_underscore_count=$(tr -dc '_' <<<"${sample_name}" | awk '{ print length; }')
+		reindex=$(( sample_name_underscore_count + 6))
+		source="ANI_REFSEQ_UTD"
 	else
-		for file in "${OUTDATADIR}/ANI/*"; do
-			# Not being very specific here due to lack of interest in files that are not the ones being found above
-			if [[ "${file}" == "${OUTDATADIR}/ANI/best_ANI_hits_ordered(${sample_name}_vs_"* ]]; then
-				source_file="${file}"
-			fi
-		done
+		next_best_refseq_file=$(find ${OUTDATADIR}/ANI/ -maxdepth 1 -name "${sample_name}_vs_REFSEQ_*" -type f -printf '%p\n' | sort -k$reindex,$reindex -rt '_' -n | head -n 1)
+		source_file=${next_best_refseq_file}
+		source="ANI_REFSEQ_OOD"
 	fi
 	if [[ -f "${source_file}" ]]; then
 		header=$(head -n 1 "${source_file}")

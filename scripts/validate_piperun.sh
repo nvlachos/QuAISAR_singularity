@@ -100,7 +100,10 @@ contamination_threshold=25
 . ${scripts}/get_latest_DBs.sh "${databases}"
 ResGANNCBI_srst2_filename=$(get_srst2_filename)
 REFSEQ_date=$(get_ANI_REFSEQ_Date)
-echo "${REFSEQ_date}"
+#echo "${REFSEQ_date}"
+NCBI_ratio=$(get_ratio)
+NCBI_ratio_date=$(get_ratio_Date)
+#echo "${NCBI_ratio_date}"
 
 # Creates and prints header info for the sample being processed
 today=$(date)
@@ -437,99 +440,102 @@ if [[ -s "${SAMPDATADIR}/kraken/preAssembly/${sample_name}_paired.list" ]]; then
 	elif [[ "${number_of_species}" -eq 1 ]]; then
 		:
 	else
-		printf "%-20s: %-8s : %s\\n" "pre Class Contam." "FAILED" "No species have been found above the ${contamination_threshold}% threshold"
+		printf "%-20s: %-8s : %s\\n" "pre Class Contam." "ALERT" "No species have been found above the ${contamination_threshold}% threshold"
+		if [ "${status}" = "SUCCESS" ]; then
+				status="ALERT"
+		fi
 	fi
 	#echo "Number of species: ${number_of_species}"
 fi
 
-#Check gottcha_S output for TSV ouput and the krona file
-if [[ -s "${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha_full.tsv" ]] && [[ -s "${SAMPDATADIR}/gottcha/${sample_name}_species.krona.html" ]]; then
-	#printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "SUCCESS" "Found"
-	:
-elif [[ -s "${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha_full.tsv" ]]; then
-	printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "WARNING" "No Krona output found"
-	if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
-		status="WARNING"
-	fi
-elif [[ -s "${SAMPDATADIR}/gottcha/${sample_name}_species.krona.html" ]]; then
-	printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "WARNING" "No TSV file found"
-	if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
-		status="WARNING"
-	fi
-else
-	printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "FAILED" "/gottcha/gottcha_S/${sample_name}.gottcha_full.tsv & /gottcha/${sample_name}_species.krona.html not found"
-	status="FAILED"
-fi
-
-#Check extraction of gottcha id
-if [[ -s "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" ]]; then
-	# Extracts many elements of the summary file to report unclassified and species classified reads and percentages
-	unclass=$(head -n 1 "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f2)
-	#true_unclass=$(head -n 1 "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f3) # | sed -r 's/[)]+/%)/g')
-	phylumpercent=$(sed -n '3p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f2)
-	genuspre=$(sed -n '7p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt"| cut -d' ' -f4)
-	speciespre=$(sed -n '8p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f5)
-	speciespercent=$(sed -n '8p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f2)
-	true_speciespercent=$(sed -n '8p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f3 | sed -r 's/[)]+/%)/g')
-	# Gottcha only classifies up to phylum and therefore if no phylum reads, there are no reads
-	if (( $(echo "${phylumpercent} <= 0" | bc -l) )); then
-		printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "FAILED" "There are no classified reads"
-		status="FAILED"
-	# If there are phylum level reads then check to see the percentage. If it falls below the threshold (set in config.sh) report it as a warning, otherwise report all necessary stats
-	else
-		if (( $(echo "${unclass} > ${unclass_flag}" | bc -l) )); then
-			printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "WARNING" "unclassified reads comprise ${unclass}% of total"
-			if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
-				status="WARNING"
-			fi
-		else
-			printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "SUCCESS" "${speciespercent}%${true_speciespercent} ${genuspre} ${speciespre} with ${unclass}% unclassified reads"
-		fi
-	fi
-# If the summary file does not exist, report as such
-else
-	printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "FAILED" "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt not found"
-	status="FAILED"
-fi
-
-# Quick separate check for contamination by finding # of species above ${contamination_threshold} in list file from kraken
-if [[ -s "${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha.tsv" ]]; then
-	number_of_species=0
-	while IFS= read -r line; do
-		# Convert the perfect match to proper format from 1.00 to 100
-		if [[ "${line[2]}" = "1.0000" ]] || [[ "${line[2]}" -eq 1 ]]; then
-			percent_integer=100
-		# Convert all non-perfect matches to the correct matching percent values
-		else
-			percent="${line[2]:2:2}.${line[2]:4:2}"
-			percent_integer=$(echo "${percent}" | cut -d'.' -f1)
-		fi
-		# Convert a no-match to the correct percent value
-		if [[ "${percent}" = "00.00" ]]; then
-			percent_integer=0
-		fi
-		# Takes the first letter of the first column as shorthand for identifying the taxonomic level
-		classification="${line[0]::1}"
-		if [[ "${classification}" == "s" ]] && (( percent_integer > contamination_threshold )); then
-			number_of_species=$(( number_of_species + 1 ))
-		fi
-	done < ${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha.tsv
-	if [[ $number_of_species -gt 1 ]]; then
-		# Holding off on putting a cutoff here, as we cant tell what is an acceptable value to use
-		#printf "%-20s: %-8s : %s\\n" "gottcha Contam." "WARNING" "${number_of_species} species have been found above the ${contamination_threshold}% threshold"
-		#if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
-		#	status="WARNING"
-		#fi
-		:
-	elif [[ "${number_of_species}" -eq 1 ]]; then
-		:
-	else
-		# Holding off on putting a cutoff here, as we cant tell what is an acceptable value to use
-		#printf "%-20s: %-8s : %s\\n" "gottcha Contam." "FAILED" "No species have been found above the ${contamination_threshold}% threshold"
-		:
-	fi
-	#echo "Number of species: ${number_of_species}"
-fi
+# #Check gottcha_S output for TSV ouput and the krona file
+# if [[ -s "${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha_full.tsv" ]] && [[ -s "${SAMPDATADIR}/gottcha/${sample_name}_species.krona.html" ]]; then
+# 	#printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "SUCCESS" "Found"
+# 	:
+# elif [[ -s "${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha_full.tsv" ]]; then
+# 	printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "WARNING" "No Krona output found"
+# 	if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
+# 		status="WARNING"
+# 	fi
+# elif [[ -s "${SAMPDATADIR}/gottcha/${sample_name}_species.krona.html" ]]; then
+# 	printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "WARNING" "No TSV file found"
+# 	if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
+# 		status="WARNING"
+# 	fi
+# else
+# 	printf "%-20s: %-8s : %s\\n" "GOTTCHA_S" "FAILED" "/gottcha/gottcha_S/${sample_name}.gottcha_full.tsv & /gottcha/${sample_name}_species.krona.html not found"
+# 	status="FAILED"
+# fi
+#
+# #Check extraction of gottcha id
+# if [[ -s "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" ]]; then
+# 	# Extracts many elements of the summary file to report unclassified and species classified reads and percentages
+# 	unclass=$(head -n 1 "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f2)
+# 	#true_unclass=$(head -n 1 "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f3) # | sed -r 's/[)]+/%)/g')
+# 	phylumpercent=$(sed -n '3p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f2)
+# 	genuspre=$(sed -n '7p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt"| cut -d' ' -f4)
+# 	speciespre=$(sed -n '8p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f5)
+# 	speciespercent=$(sed -n '8p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f2)
+# 	true_speciespercent=$(sed -n '8p' "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt" | cut -d' ' -f3 | sed -r 's/[)]+/%)/g')
+# 	# Gottcha only classifies up to phylum and therefore if no phylum reads, there are no reads
+# 	if (( $(echo "${phylumpercent} <= 0" | bc -l) )); then
+# 		printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "FAILED" "There are no classified reads"
+# 		status="FAILED"
+# 	# If there are phylum level reads then check to see the percentage. If it falls below the threshold (set in config.sh) report it as a warning, otherwise report all necessary stats
+# 	else
+# 		if (( $(echo "${unclass} > ${unclass_flag}" | bc -l) )); then
+# 			printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "WARNING" "unclassified reads comprise ${unclass}% of total"
+# 			if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
+# 				status="WARNING"
+# 			fi
+# 		else
+# 			printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "SUCCESS" "${speciespercent}%${true_speciespercent} ${genuspre} ${speciespre} with ${unclass}% unclassified reads"
+# 		fi
+# 	fi
+# # If the summary file does not exist, report as such
+# else
+# 	printf "%-20s: %-8s : %s\\n" "Gottcha Classifier" "FAILED" "${SAMPDATADIR}/gottcha/${sample_name}_gottcha_species_summary.txt not found"
+# 	status="FAILED"
+# fi
+#
+# # Quick separate check for contamination by finding # of species above ${contamination_threshold} in list file from kraken
+# if [[ -s "${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha.tsv" ]]; then
+# 	number_of_species=0
+# 	while IFS= read -r line; do
+# 		# Convert the perfect match to proper format from 1.00 to 100
+# 		if [[ "${line[2]}" = "1.0000" ]] || [[ "${line[2]}" -eq 1 ]]; then
+# 			percent_integer=100
+# 		# Convert all non-perfect matches to the correct matching percent values
+# 		else
+# 			percent="${line[2]:2:2}.${line[2]:4:2}"
+# 			percent_integer=$(echo "${percent}" | cut -d'.' -f1)
+# 		fi
+# 		# Convert a no-match to the correct percent value
+# 		if [[ "${percent}" = "00.00" ]]; then
+# 			percent_integer=0
+# 		fi
+# 		# Takes the first letter of the first column as shorthand for identifying the taxonomic level
+# 		classification="${line[0]::1}"
+# 		if [[ "${classification}" == "s" ]] && (( percent_integer > contamination_threshold )); then
+# 			number_of_species=$(( number_of_species + 1 ))
+# 		fi
+# 	done < ${SAMPDATADIR}/gottcha/gottcha_S/${sample_name}.gottcha.tsv
+# 	if [[ $number_of_species -gt 1 ]]; then
+# 		# Holding off on putting a cutoff here, as we cant tell what is an acceptable value to use
+# 		#printf "%-20s: %-8s : %s\\n" "gottcha Contam." "WARNING" "${number_of_species} species have been found above the ${contamination_threshold}% threshold"
+# 		#if [ "${status}" = "SUCCESS" ] || [ "${status}" = "ALERT" ]; then
+# 		#	status="WARNING"
+# 		#fi
+# 		:
+# 	elif [[ "${number_of_species}" -eq 1 ]]; then
+# 		:
+# 	else
+# 		# Holding off on putting a cutoff here, as we cant tell what is an acceptable value to use
+# 		#printf "%-20s: %-8s : %s\\n" "gottcha Contam." "FAILED" "No species have been found above the ${contamination_threshold}% threshold"
+# 		:
+# 	fi
+# 	#echo "Number of species: ${number_of_species}"
+# fi
 
 #Check spades assembly
 if [[ -s "${SAMPDATADIR}/Assembly/scaffolds.fasta" ]]; then
@@ -788,37 +794,94 @@ fi
 
 # Check Assembly ratio
 declare -A mmb_bugs
-while IFS= read -r bug_lines || [ -n "$bug_lines" ]; do
-	#bug_genus=$(echo "${bug_lines}" | cut -d'	' -f1)
-	#bug_species=$(echo "${bug_lines}" | cut -d'	' -f2)
-	bug_info=$(echo "${bug_lines}" | cut -d'	' -f4-)
-	bug_size=$(echo "${bug_lines}" | cut -d'	' -f6)
-	#bug_name="${bug_genus:0:1}.${bug_species}"
-	bug_name=$(echo "${bug_lines}" | cut -d'	' -f3)
-	#echo "Should be adding ${bug_size} for ${bug_name}"
-	mmb_bugs["${bug_name}"]="${bug_size}"
-done < ${databases}/MMB_Bugs.txt
+# while IFS= read -r bug_lines || [ -n "$bug_lines" ]; do
+# 	#bug_genus=$(echo "${bug_lines}" | cut -d'	' -f1)
+# 	#bug_species=$(echo "${bug_lines}" | cut -d'	' -f2)
+# 	bug_info=$(echo "${bug_lines}" | cut -d'	' -f4-)
+# 	bug_size=$(echo "${bug_lines}" | cut -d'	' -f6)
+# 	#bug_name="${bug_genus:0:1}.${bug_species}"
+# 	bug_name=$(echo "${bug_lines}" | cut -d'	' -f3)
+# 	#echo "Should be adding ${bug_size} for ${bug_name}"
+# 	mmb_bugs["${bug_name}"]="${bug_size}"
+# done < ${databases}/MMB_Bugs.txt
 genus_initial="${dec_genus:0:1}"
 assembly_ID="${genus_initial}.${dec_species}"
 #echo "${mmb_bugs[@]}"
 #echo "${assembly_ID}"
-if [[ ! -z "${mmb_bugs[${assembly_ID}]}" ]]; then
-	#echo "Found Bug in DB: ${assembly_ID}-${mmb_bugs[${assembly_ID}]}"
-	assembly_ratio=$(awk -v p="${assembly_length}" -v q="${mmb_bugs[${assembly_ID}]}" 'BEGIN{printf("%.2f",p/q)}')
-	if (( $(echo "$assembly_ratio > 1.2" | bc -l) )); then
-		printf "%-20s: %-8s : %s\\n" "Assembly ratio" "FAILED" "Too large - ${assembly_ratio}x against ${assembly_ID}"
-		status="FAILED"
-	elif (( $(echo "$assembly_ratio < 0.8" | bc -l) )); then
-		printf "%-20s: %-8s : %s\\n" "Assembly ratio" "FAILED" "Too small - ${assembly_ratio}x against ${assembly_ID}"
-		status="FAILED"
-	else
-		printf "%-20s: %-8s : %s\\n" "Assembly ratio" "SUCCESS" "${assembly_ratio}x against ${assembly_ID}"
-	fi
+# if [[ -n "${}" ]]; then
+# 	#echo "Found Bug in DB: ${assembly_ID}-${mmb_bugs[${assembly_ID}]}"
+# 	assembly_ratio=$(awk -v p="${assembly_length}" -v q="${mmb_bugs[${assembly_ID}]}" 'BEGIN{printf("%.2f",p/q)}')
+# 	if (( $(echo "$assembly_ratio > 1.2" | bc -l) )); then
+# 		printf "%-20s: %-8s : %s\\n" "Assembly ratio" "FAILED" "Too large - ${assembly_ratio}x against ${assembly_ID}"
+# 		status="FAILED"
+# 	elif (( $(echo "$assembly_ratio < 0.8" | bc -l) )); then
+# 		printf "%-20s: %-8s : %s\\n" "Assembly ratio" "FAILED" "Too small - ${assembly_ratio}x against ${assembly_ID}"
+# 		status="FAILED"
+# 	else
+# 		printf "%-20s: %-8s : %s\\n" "Assembly ratio" "SUCCESS" "${assembly_ratio}x against ${assembly_ID}"
+# 	fi
+# else
+# 	printf "%-20s: %-8s : %s\\n" "Assembly ratio" "WARNING" "${assembly_ID} does not exist in the DB"
+# 	if [[ "${status}" = "SUCCESS" ]] || [[ "${status}" = "ALERT" ]]; then
+# 		status="WARNING"
+# 	fi
+# fi
+
+
+newest_ratio_file=$(find ${SAMPDATADIR}/ -maxdepth 1 -type f -name "${sample_name}_Assembly_ratio_*.txt" | sort -k4,4 -rt '_' -n | head -n1)
+if [[ -f "${newest_ratio_file}" ]]; then
+ ratio_db_date=$(echo "${newest_ratio_file}" | rev | cut -d'_' -f1 | rev | cut -d'.' -f1)
+ assembly_ratio=$(tail -n1 "${newest_ratio_file}" | cut -d' ' -f2)
+ stdev_line=$(head -n4 "${newest_ratio_file}" | tail -n1)
+ species_stdev_line=$(head -n3 "${newest_ratio_file}" | tail -n1)
+ if [[ "${stdev_line}" = "Isolate_St.Devs:"* ]]; then
+	 st_dev=$(head -n4 "${newest_ratio_file}" | tail -n1 | cut -d' ' -f2)
+ else
+	 "${scripts}/calculate_assembly_ratio.sh" -e ${OUTDATADIR}
+	 st_dev=$(head -n4 "${newest_ratio_file}" | tail -n1 | cut -d' ' -f2)
+ fi
+ if [[ "${ratio_db_date}" = "${NCBI_ratio_date}" ]]; then
+	 #assembly_ratio=$(tail -n1 ${OUTDATADIR}/Assembly_ratio.txt | cut -d' ' -f2)
+	 if [[ "${species_st_dev_line}" = *"Single_Reference"* ]]; then
+		 printf "%-20s: %-8s : %s\\n" "Assembly ratio(SD)" "ALERT" "One Reference for STDev - ${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB up to date! Most current DB: ${NCBI_ratio_date})"
+		 if [[ "${status}" = "SUCCESS" ]]; then
+			 status="ALERT"
+		 fi
+	 elif (( $(echo "$st_dev > 2.58" | bc -l) )); then
+		 printf "%-20s: %-8s : %s\\n" "Assembly ratio(SD)" "FAILED" "Too large - ${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB up to date! Most current DB: ${NCBI_ratio_date})"
+		 status="FAILED"
+		 #QC_FAIL=$QC_FAIL"STDev_above_2.58($st_dev)-"
+	 #elif (( $(echo "$assembly_ratio < 0.8" | bc -l) )); then
+	 #	printf "%-20s: %-8s : %s\\n" "Assembly ratio" "FAILED" "Too small - ${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB up to date! Most current DB: ${NCBI_ratio_date})"  >> "${processed}/${project}/${sample_name}/${sample_name}_pipeline_stats.txt"
+	 #	status="FAILED"
+	 else
+		 printf "%-20s: %-8s : %s\\n" "Assembly ratio(SD)" "SUCCESS" "${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB up to date! Most current DB: ${NCBI_ratio_date})"
+	 fi
+ else
+	 if [[ "${st_dev}" = "Single_Reference" ]]; then
+		 printf "%-20s: %-8s : %s\\n" "Assembly ratio(SD)" "WARNING" "One Reference for STDev - ${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB NOT up to date! Found as ${ratio_db_date}. Most current DB: ${NCBI_ratio_date})"
+		 if [[ "${status}" = "SUCCESS" ]] || [[ "${status}" = "ALERT" ]]; then
+			 status="WARNING"
+		 fi
+	 elif (( $(echo "$st_dev > 2.58" | bc -l) )); then
+		 printf "%-20s: %-8s : %s\\n" "Assembly ratio(SD)" "FAILED" "Too large - ${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB NOT up to date! Found as ${ratio_db_date}. Most current DB: ${NCBI_ratio_date})"
+		 status="FAILED"
+		 #QC_FAIL="true-STDev_above_2.58($st_dev)-old_DB"
+	 #elif (( $(echo "$assembly_ratio < 0.8" | bc -l) )); then
+	 #	printf "%-20s: %-8s : %s\\n" "Assembly ratio" "FAILED" "Too small - ${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB NOT up to date! Found as ${ratio_db_date}. Most current DB: ${NCBI_ratio_date})"  >> "${processed}/${project}/${sample_name}/${sample_name}_pipeline_stats.txt"
+	 #	status="FAILED"
+	 else
+		 printf "%-20s: %-8s : %s\\n" "Assembly ratio(SD)" "WARNING" "${assembly_ratio}x(${st_dev}-SD) against ${assembly_ID} (DB NOT up to date! Found as ${ratio_db_date}. Most current DB: ${NCBI_ratio_date})"
+		 if [[ "${status}" = "SUCCESS" ]] || [[ "${status}" = "ALERT" ]]; then
+			 status="WARNING"
+		 fi
+	 fi
+ fi
 else
-	printf "%-20s: %-8s : %s\\n" "Assembly ratio" "WARNING" "${assembly_ID} does not exist in the DB"
-	if [[ "${status}" = "SUCCESS" ]] || [[ "${status}" = "ALERT" ]]; then
-		status="WARNING"
-	fi
+ printf "%-20s: %-8s : %s\\n" "Assembly ratio(SD)" "FAILED" "No Ratio File exists"
+ if [[ "${status}" = "SUCCESS" ]] || [[ "${status}" = "ALERT" ]] || [[ "${status}" = "WARNING" ]]; then
+	 status="FAILED"
+ fi
 fi
 
 # check coverage
@@ -1017,34 +1080,34 @@ else
 	status="FAILED"
 fi
 
-#Check GAMA
-if [[ -d "${SAMPDATADIR}/GAMA/" ]]; then
-	GAMA_file=$(find ${SAMPDATADIR}/GAMA -maxdepth 1 -type f -name "${sample_name}.ResGANNCBI*.GAMA"   -printf '%p\n' | sort -k2,2 -rt '_' -n | head -n 1)
-	if [[ -z "${GAMA_file}" ]]; then
-		printf "%-20s: %-8s : %s\\n" "GAMA" "FAILED" "/GAMA/ does not have a .GAMA file"
+#Check GAMMA
+if [[ -d "${SAMPDATADIR}/GAMMA/" ]]; then
+	GAMMA_file=$(find ${SAMPDATADIR}/GAMMA -maxdepth 1 -type f -name "${sample_name}.ResGANNCBI_*.gamma"   -printf '%p\n' | sort -k2,2 -rt '_' -n | head -n 1)
+	if [[ -z "${GAMMA_file}" ]]; then
+		printf "%-20s: %-8s : %s\\n" "GAMMA" "FAILED" "/GAMMA/ does not have a .GAMMA file"
 		status="FAILED"
 	else
-		ResGANNCBI_DB=$(echo "${GAMA_file}" | rev | cut -d'.' -f2 | rev)
+		ResGANNCBI_DB=$(echo "${GAMMA_file}" | rev | cut -d'.' -f2 | rev)
 		#echo "${ResGANNCBI_DB} = ${ResGANNCBI_srst2_filename} ?"
-		amr_genes_found=$(wc -l "${GAMA_file}" | cut -d' ' -f1)
+		amr_genes_found=$(wc -l "${GAMMA_file}" | cut -d' ' -f1)
 		amr_genes_found=$(( amr_genes_found - 1))
 		if [[ ${amr_genes_found} -le 0 ]]; then
 			if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
-				printf "%-20s: %-8s : %s\\n" "GAMA" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
+				printf "%-20s: %-8s : %s\\n" "GAMMA" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
 			else
-				printf "%-20s: %-8s : %s\\n" "GAMA" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
+				printf "%-20s: %-8s : %s\\n" "GAMMA" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
 			fi
 		else
 			# Prints out the counts of AR gene hits
 			if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
-				printf "%-20s: %-8s : %s\\n" "GAMA" "SUCCESS" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
+				printf "%-20s: %-8s : %s\\n" "GAMMA" "SUCCESS" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
 			else
-				printf "%-20s: %-8s : %s\\n" "GAMA" "ALERT" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (DB NOT up to date, Most current DB: ${ResGANNCBI_srst2_filename})"
+				printf "%-20s: %-8s : %s\\n" "GAMMA" "ALERT" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (DB NOT up to date, Most current DB: ${ResGANNCBI_srst2_filename})"
 			fi
 		fi
 	fi
 else
-	printf "%-20s: %-8s : %s\\n" "GAMA" "FAILED" "/GAMA/ does not exist"
+	printf "%-20s: %-8s : %s\\n" "GAMMA" "FAILED" "/GAMMA/ does not exist"
 	status="FAILED"
 fi
 
@@ -1405,6 +1468,8 @@ if [[ -d "${SAMPDATADIR}/plasmidFinder/" ]]; then
 			printf "%-20s: %-8s : %s\\n" "plasmidFinder" "SUCCESS" "${number_of_plasmids} replicon was found in the full scaffold"
 		elif [[ ${number_of_plasmids} -gt 1 ]]; then
 			printf "%-20s: %-8s : %s\\n" "plasmidFinder" "SUCCESS" "${number_of_plasmids} replicons were found in the full scaffold"
+		elif [[ ${number_of_plasmids} -eq 0 ]]; then
+			printf "%-20s: %-8s : %s\\n" "plasmidFinder" "SUCCESS" "0 replicons were found in the full scaffold"
 		fi
 	else
 		printf "%-20s: %-8s : %s\\n" "plasmidFinder" "FAILED" "results_table_summary.txt does not exist"
@@ -1417,174 +1482,176 @@ else
 fi
 
 #
-# #Check plasFlow plasmid assembly
-plasmidsFoundviaplasFlow=0
-if [[ -d "${SAMPDATADIR}/plasFlow" ]]; then
-	if [[ -s "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_original.fasta" ]]; then
-		# Count the number of '>' in the assembly file before trimming
-		plas_scaffolds=">"
-		plas_scaffolds=$(grep -c ${plas_scaffolds} "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_original.fasta")
-		if [ -z ${plas_scaffolds} ]; then
-			plas_scaffolds=0
-		fi
-		if [[ "${plas_scaffolds}" -gt 0 ]]; then
-			printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "SUCCESS" "${plas_scaffolds} scaffolds found via plasFlow"
-			plasmidsFoundviaplasFlow=1
-		#else
-		#	printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "ALERT" "No plasmid scaffold found?"
-		#	if [[ "${status}" == "SUCCESS" ]]; then
-		#		status="ALERT"
-		#	fi
-		fi
-	# Needs a better catch of if it ran and failed vs ran and succeeded but with nothing to find
-	else
-		printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "WARNING" "No plasmid scaffold found using plasFlow"
-		if [[ "${status}" == "SUCCESS" ]] || [[ "${status}" == "ALERT" ]]; then
-			status="Warning"
-		fi
-	fi
-elif [[ "${dec_family}" == "Enterobacteriaceae" ]]; then
-	printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "FAILED" "/plasFlow not found"
-	status="FAILED"
-else
-	printf "%-20s: %-8s : %s\\n" "plasFlow" "SUCCESS" "Not correct TAXA for plasFlow analysis"
-fi
-
-#Check short scaffolds reduction script for plasmid assembly
-#echo "${plasmidsFoundviaplasFlow}-Found?"
-if [[ "${plasmidsFoundviaplasFlow}" -eq 1 ]]; then
-	if [[ -s "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta" ]]; then
-		# Count the number of '>' still remaining after trimming the contig file
-		plas_longies=">"
-		plas_longies=$(grep -c ${plas_longies} "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta")
-		# Calculate the number of lost (short) scaffolds
-		plas_shorties=$(( plas_scaffolds - plas_longies ))
-		if [ -z ${plas_shorties} ]; then
-			plas_shorties=0
-		fi
-		if [[ "${plas_longies}" -gt 0 ]]; then
-			printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "SUCCESS" "${plas_longies} scaffolds remain. ${plas_shorties} were removed due to shortness"
-		else
-			printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "SUCCESS" "No plasmid scaffold found"
-		fi
-	elif [[ -f "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta" ]]; then
-		printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "SUCCESS" "No plasmid scaffolds found"
-	else
-		printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "FAILED" "plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta not found"
-		status="FAILED"
-	fi
-
-	# Check quality of plasmid Assembly
-	if [[ -s "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv" ]]; then
-		# Extract the useful bits and report (to compare to Toms)
-		contig_num_plas=$(sed -n '14p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv"| sed -r 's/[\t]+/ /g' | cut -d' ' -f3 )
-		assembly_length_plas=$(sed -n '16p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv" | sed -r 's/[\t]+/ /g' | cut -d' ' -f3)
-		N50_plas=$(sed -n '18p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv"  | sed -r 's/[\t]+/ /g'| cut -d' ' -f2)
-		GC_con_plas=$(sed -n '17p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv" | sed -r 's/[\t]+/ /g' | cut -d' ' -f3)
-		printf "%-20s: %-8s : %s\\n" "QUAST_plasFlow" "SUCCESS" "#-${contig_num_plas} length-${assembly_length_plas} n50-${N50_plas} %GC-${GC_con_plas}"
-	else
-		printf "%-20s: %-8s : %s\\n" "QUAST_plasFlow" "FAILED" "/Assembly_Stats_plasFlow/report.tsv does not exist"
-		status="FAILED"
-	fi
-
-	#Check c-SSTAR of plasmid assembly
-	if [[ -d "${SAMPDATADIR}/c-sstar_plasFlow/" ]]; then
-		csstar_plasFlow_file=$(find ${SAMPDATADIR}/c-sstar_plasFlow/${sample_name}.ResGANNCBI*.${gapping}_${psim}_sstar_summary.txt -maxdepth 1 -type f -printf '%p\n' | sort -k2,2 -rt '_' -n | head -n 1)
-		if [[ -z "${csstar_plasFlow_file}" ]]; then
-			printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "FAILED" "/c-sstar_plasFlow/ does not have an sstar_summary file"
-			echo "Looking for ${SAMPDATADIR}/c-sstar_plasFlow/${sample_name}.ResGANNCBI.${gapping}_${psim}_sstar_summary.txt"
-			status="FAILED"
-		else
-			header=$(head -n1 "${csstar_plasFlow_file}")
-			ResGANNCBI_DB=$(echo "${csstar_plasFlow_file}" | rev | cut -d'.' -f3 | rev)
-			if [[ ${header} = *"No anti-microbial genes were found"* ]]; then
-				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
-					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes present from ${ResGANNCBI_DB} (DB up to date, as of ${today})"
-					if [[ "${status}" == "SUCCESS" ]]; then
-						status="ALERT"
-					fi
-				else
-					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes present from ${ResGANNCBI_DB} (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
-					if [[ "${status}" == "SUCCESS" ]]; then
-						status="ALERT"
-					fi
-				fi
-			else
-				amr_genes_found=$(wc -l "${csstar_plasFlow_file}" | cut -d' ' -f1)
-				# Prints out the counts of AR gene hits
-				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
-					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "SUCCESS" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (%ID defaults to 40) (DB up to date, as of ${today})"
-				else
-					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "ALERT" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (%ID defaults to 40) (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
-					if [[ "${status}" == "SUCCESS" ]]; then
-						status="ALERT"
-					fi
-				fi
-			fi
-		fi
-	else
-		printf "%-20s: %-8s : %s\\n" "c-sstar_plasFlow" "FAILED" "/c-sstar_plasFlow/ does not exist"
-		status="FAILED"
-	fi
-
-	if [[ -d  "${SAMPDATADIR}/GAMA_plasFlow" ]]; then
-		#Check c-SSTAR
-		GAMA_plasFlow_file=$(find ${SAMPDATADIR}/GAMA_plasFlow -maxdepth 1 -type f -name "${sample_name}.ResGANNCBI*.GAMA"   -printf '%p\n' | sort -k2,2 -rt '_' -n | head -n 1)
-		if [[ -z "${GAMA_plasFlow_file}" ]]; then
-			printf "%-20s: %-8s : %s\\n" "GAMA_plasFlow" "FAILED" "/GAMA_plasFlow/ does not have a .GAMA file"
-			status="FAILED"
-		else
-			ResGANNCBI_DB=$(echo "${GAMA_plasFlow_file}" | rev | cut -d'.' -f2 | rev)
-			#echo "${ResGANNCBI_DB} = ${ResGANNCBI_srst2_filename} ?"
-			plasmid_amr_genes_found=$(wc -l "${GAMA_plasFlow_file}" | cut -d' ' -f1)
-			plasmid_amr_genes_found=$(( plasmid_amr_genes_found - 1))
-			if [[ ${plasmid_amr_genes_found} -le 0 ]]; then
-				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
-					printf "%-20s: %-8s : %s\\n" "GAMA_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
-				else
-					printf "%-20s: %-8s : %s\\n" "GAMA_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
-				fi
-			else
-				# Prints out the counts of AR gene hits
-				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
-					printf "%-20s: %-8s : %s\\n" "GAMA_plasFlow" "SUCCESS" "${plasmid_amr_genes_found} genes found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
-				else
-					printf "%-20s: %-8s : %s\\n" "GAMA_plasFlow" "ALERT" "${plasmid_amr_genes_found} genes found in ${ResGANNCBI_DB} (DB NOT up to date, Most current DB: ${ResGANNCBI_srst2_filename})"
-				fi
-			fi
-		fi
-	else
-		printf "%-20s: %-8s : %s\\n" "GAMA_plasFlow" "FAILED" "/GAMA_plasFlow/ does not exist"
-		status="FAILED"
-	fi
-
-	# check plasmids (on plasmidAssembly)
-	if [[ -d "${SAMPDATADIR}/plasmidFinder_on_plasFlow/" ]]; then
-		if [[ -s "${SAMPDATADIR}/plasmidFinder_on_plasFlow/${sample_name}_results_table_summary.txt" ]]; then
-			number_of_plasmids=0
-			while read line_in; do
-				line_in=$(echo ${line_in} | cut -d' ' -f1)
-				if [[ "${line_in}" = "No" ]] || [[ "${line_in}" = "Enterococcus,Streptococcus,Staphylococcus" ]] || [[ "${line_in}" = "Enterobacteriaceae" ]] || [[ "${line_in}" = "Plasmid" ]]; then
-					:
-				else
-					number_of_plasmids=$(( number_of_plasmids + 1 ))
-				fi
-			done < "${SAMPDATADIR}/plasmidFinder/${sample_name}_results_table_summary.txt"
-			if [[ ${number_of_plasmids} -eq 1 ]]; then
-				printf "%-20s: %-8s : %s\\n" "plasmidFinder" "SUCCESS" "${number_of_plasmids} replicon was found in the plasmid scaffold"
-			elif [[ ${number_of_plasmids} -gt 1 ]]; then
-				printf "%-20s: %-8s : %s\\n" "plasmidFinder" "SUCCESS" "${number_of_plasmids} replicons were found in the plasmid scaffold"
-			fi
-		else
-			printf "%-20s: %-8s : %s\\n" "plasmidFndr-plasFlow" "FAILED" "results_table_summary.txt does not exist"
-			status="FAILED"
-		fi
-	# No plasmid folder exists
-	else
-		printf "%-20s: %-8s : %s\\n" "plasmidFndr-plasFlow" "FAILED" "/plasmidFinder_on_plasFlow/ does not exist"
-		status="FAILED"
-	fi
-fi
+# # #Check plasFlow plasmid assembly
+# plasmidsFoundviaplasFlow=0
+# if [[ -d "${SAMPDATADIR}/plasFlow" ]]; then
+# 	if [[ -s "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_original.fasta" ]]; then
+# 		# Count the number of '>' in the assembly file before trimming
+# 		plas_scaffolds=">"
+# 		plas_scaffolds=$(grep -c ${plas_scaffolds} "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_original.fasta")
+# 		if [ -z ${plas_scaffolds} ]; then
+# 			plas_scaffolds=0
+# 		fi
+# 		if [[ "${plas_scaffolds}" -gt 0 ]]; then
+# 			printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "SUCCESS" "${plas_scaffolds} scaffolds found via plasFlow"
+# 			plasmidsFoundviaplasFlow=1
+# 		#else
+# 		#	printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "ALERT" "No plasmid scaffold found?"
+# 		#	if [[ "${status}" == "SUCCESS" ]]; then
+# 		#		status="ALERT"
+# 		#	fi
+# 		fi
+# 	# Needs a better catch of if it ran and failed vs ran and succeeded but with nothing to find
+# 	else
+# 		printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "WARNING" "No plasmid scaffold found using plasFlow"
+# 		if [[ "${status}" == "SUCCESS" ]] || [[ "${status}" == "ALERT" ]]; then
+# 			status="Warning"
+# 		fi
+# 	fi
+# elif [[ "${dec_family}" == "Enterobacteriaceae" ]]; then
+# 	printf "%-20s: %-8s : %s\\n" "plasFlow Assembly" "FAILED" "/plasFlow not found"
+# 	status="FAILED"
+# else
+# 	printf "%-20s: %-8s : %s\\n" "plasFlow" "SUCCESS" "Not correct TAXA for plasFlow analysis"
+# fi
+#
+# #Check short scaffolds reduction script for plasmid assembly
+# #echo "${plasmidsFoundviaplasFlow}-Found?"
+# if [[ "${plasmidsFoundviaplasFlow}" -eq 1 ]]; then
+# 	if [[ -s "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta" ]]; then
+# 		# Count the number of '>' still remaining after trimming the contig file
+# 		plas_longies=">"
+# 		plas_longies=$(grep -c ${plas_longies} "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta")
+# 		# Calculate the number of lost (short) scaffolds
+# 		plas_shorties=$(( plas_scaffolds - plas_longies ))
+# 		if [ -z ${plas_shorties} ]; then
+# 			plas_shorties=0
+# 		fi
+# 		if [[ "${plas_longies}" -gt 0 ]]; then
+# 			printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "SUCCESS" "${plas_longies} scaffolds remain. ${plas_shorties} were removed due to shortness"
+# 		else
+# 			printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "SUCCESS" "No plasmid scaffold found"
+# 		fi
+# 	elif [[ -f "${SAMPDATADIR}/plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta" ]]; then
+# 		printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "SUCCESS" "No plasmid scaffolds found"
+# 	else
+# 		printf "%-20s: %-8s : %s\\n" "plasFlow contig Trim" "FAILED" "plasFlow/Unicycler_assemblies/${sample_name}_uni_assembly/${sample_name}_plasmid_assembly_trimmed.fasta not found"
+# 		status="FAILED"
+# 	fi
+#
+# 	# Check quality of plasmid Assembly
+# 	if [[ -s "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv" ]]; then
+# 		# Extract the useful bits and report (to compare to Toms)
+# 		contig_num_plas=$(sed -n '14p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv"| sed -r 's/[\t]+/ /g' | cut -d' ' -f3 )
+# 		assembly_length_plas=$(sed -n '16p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv" | sed -r 's/[\t]+/ /g' | cut -d' ' -f3)
+# 		N50_plas=$(sed -n '18p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv"  | sed -r 's/[\t]+/ /g'| cut -d' ' -f2)
+# 		GC_con_plas=$(sed -n '17p' "${SAMPDATADIR}/Assembly_Stats_plasFlow/${sample_name}_report.tsv" | sed -r 's/[\t]+/ /g' | cut -d' ' -f3)
+# 		printf "%-20s: %-8s : %s\\n" "QUAST_plasFlow" "SUCCESS" "#-${contig_num_plas} length-${assembly_length_plas} n50-${N50_plas} %GC-${GC_con_plas}"
+# 	else
+# 		printf "%-20s: %-8s : %s\\n" "QUAST_plasFlow" "FAILED" "/Assembly_Stats_plasFlow/report.tsv does not exist"
+# 		status="FAILED"
+# 	fi
+#
+# 	#Check c-SSTAR of plasmid assembly
+# 	if [[ -d "${SAMPDATADIR}/c-sstar_plasFlow/" ]]; then
+# 		csstar_plasFlow_file=$(find ${SAMPDATADIR}/c-sstar_plasFlow/${sample_name}.ResGANNCBI*.${gapping}_${psim}_sstar_summary.txt -maxdepth 1 -type f -printf '%p\n' | sort -k2,2 -rt '_' -n | head -n 1)
+# 		if [[ -z "${csstar_plasFlow_file}" ]]; then
+# 			printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "FAILED" "/c-sstar_plasFlow/ does not have an sstar_summary file"
+# 			echo "Looking for ${SAMPDATADIR}/c-sstar_plasFlow/${sample_name}.ResGANNCBI.${gapping}_${psim}_sstar_summary.txt"
+# 			status="FAILED"
+# 		else
+# 			header=$(head -n1 "${csstar_plasFlow_file}")
+# 			ResGANNCBI_DB=$(echo "${csstar_plasFlow_file}" | rev | cut -d'.' -f3 | rev)
+# 			if [[ ${header} = *"No anti-microbial genes were found"* ]]; then
+# 				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
+# 					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes present from ${ResGANNCBI_DB} (DB up to date, as of ${today})"
+# 					if [[ "${status}" == "SUCCESS" ]]; then
+# 						status="ALERT"
+# 					fi
+# 				else
+# 					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes present from ${ResGANNCBI_DB} (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
+# 					if [[ "${status}" == "SUCCESS" ]]; then
+# 						status="ALERT"
+# 					fi
+# 				fi
+# 			else
+# 				amr_genes_found=$(wc -l "${csstar_plasFlow_file}" | cut -d' ' -f1)
+# 				# Prints out the counts of AR gene hits
+# 				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
+# 					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "SUCCESS" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (%ID defaults to 40) (DB up to date, as of ${today})"
+# 				else
+# 					printf "%-20s: %-8s : %s\\n" "c-SSTAR_plasFlow" "ALERT" "${amr_genes_found} genes found in ${ResGANNCBI_DB} (%ID defaults to 40) (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
+# 					if [[ "${status}" == "SUCCESS" ]]; then
+# 						status="ALERT"
+# 					fi
+# 				fi
+# 			fi
+# 		fi
+# 	else
+# 		printf "%-20s: %-8s : %s\\n" "c-sstar_plasFlow" "FAILED" "/c-sstar_plasFlow/ does not exist"
+# 		status="FAILED"
+# 	fi
+#
+# 	if [[ -d  "${SAMPDATADIR}/GAMMA_plasFlow" ]]; then
+# 		#Check c-SSTAR
+# 		GAMMA_plasFlow_file=$(find ${SAMPDATADIR}/GAMMA_plasFlow -maxdepth 1 -type f -name "${sample_name}.ResGANNCBI*.gamma"   -printf '%p\n' | sort -k2,2 -rt '_' -n | head -n 1)
+# 		if [[ -z "${GAMMA_plasFlow_file}" ]]; then
+# 			printf "%-20s: %-8s : %s\\n" "GAMMA_plasFlow" "FAILED" "/GAMMA_plasFlow/ does not have a .GAMMA file"
+# 			status="FAILED"
+# 		else
+# 			ResGANNCBI_DB=$(echo "${GAMMA_plasFlow_file}" | rev | cut -d'.' -f2 | rev)
+# 			#echo "${ResGANNCBI_DB} = ${ResGANNCBI_srst2_filename} ?"
+# 			plasmid_amr_genes_found=$(wc -l "${GAMMA_plasFlow_file}" | cut -d' ' -f1)
+# 			plasmid_amr_genes_found=$(( plasmid_amr_genes_found - 1))
+# 			if [[ ${plasmid_amr_genes_found} -le 0 ]]; then
+# 				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
+# 					printf "%-20s: %-8s : %s\\n" "GAMMA_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
+# 				else
+# 					printf "%-20s: %-8s : %s\\n" "GAMMA_plasFlow" "ALERT" "Completed, but NO KNOWN AMR genes were found in ${ResGANNCBI_DB} (DB NOT up to date! Most current DB: ${ResGANNCBI_srst2_filename})"
+# 				fi
+# 			else
+# 				# Prints out the counts of AR gene hits
+# 				if [[ "${ResGANNCBI_DB}" = "${ResGANNCBI_srst2_filename}" ]]; then
+# 					printf "%-20s: %-8s : %s\\n" "GAMMA_plasFlow" "SUCCESS" "${plasmid_amr_genes_found} genes found in ${ResGANNCBI_DB} (DB up to date, as of ${today})"
+# 				else
+# 					printf "%-20s: %-8s : %s\\n" "GAMMA_plasFlow" "ALERT" "${plasmid_amr_genes_found} genes found in ${ResGANNCBI_DB} (DB NOT up to date, Most current DB: ${ResGANNCBI_srst2_filename})"
+# 				fi
+# 			fi
+# 		fi
+# 	else
+# 		printf "%-20s: %-8s : %s\\n" "GAMMA_plasFlow" "FAILED" "/GAMMA_plasFlow/ does not exist"
+# 		status="FAILED"
+# 	fi
+#
+# 	# check plasmids (on plasmidAssembly)
+# 	if [[ -d "${SAMPDATADIR}/plasmidFinder_on_plasFlow/" ]]; then
+# 		if [[ -s "${SAMPDATADIR}/plasmidFinder_on_plasFlow/${sample_name}_results_table_summary.txt" ]]; then
+# 			number_of_plasmids=0
+# 			while read line_in; do
+# 				line_in=$(echo ${line_in} | cut -d' ' -f1)
+# 				if [[ "${line_in}" = "No" ]] || [[ "${line_in}" = "Enterococcus,Streptococcus,Staphylococcus" ]] || [[ "${line_in}" = "Enterobacteriaceae" ]] || [[ "${line_in}" = "Plasmid" ]]; then
+# 					:
+# 				else
+# 					number_of_plasmids=$(( number_of_plasmids + 1 ))
+# 				fi
+# 			done < "${SAMPDATADIR}/plasmidFinder_on_plasFlow/${sample_name}_results_table_summary.txt"
+# 			if [[ ${number_of_plasmids} -eq 1 ]]; then
+# 				printf "%-20s: %-8s : %s\\n" "plasmidFndr-plasFlow" "SUCCESS" "${number_of_plasmids} replicon was found in the plasmid scaffold"
+# 			elif [[ ${number_of_plasmids} -gt 1 ]]; then
+# 				printf "%-20s: %-8s : %s\\n" "plasmidFndr-plasFlow" "SUCCESS" "${number_of_plasmids} replicons were found in the plasmid scaffold"
+# 			else
+# 				printf "%-20s: %-8s : %s\\n" "plasmidFndr-plasFlow" "SUCCESS" "No replicons were found in the plasmid scaffold"
+# 			fi
+# 		else
+# 			printf "%-20s: %-8s : %s\\n" "plasmidFndr-plasFlow" "FAILED" "results_table_summary.txt does not exist"
+# 			status="FAILED"
+# 		fi
+# 	# No plasmid folder exists
+# 	else
+# 		printf "%-20s: %-8s : %s\\n" "plasmidFndr-plasFlow" "FAILED" "/plasmidFinder_on_plasFlow/ does not exist"
+# 		status="FAILED"
+# 	fi
+# fi
 
 echo "---------- ${sample_name} completed as ${status} ----------"
 

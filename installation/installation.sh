@@ -152,7 +152,7 @@ echo "local_DBs=${databases}" >> ${installation_location}/new_config.sh
 head -n31 ${install_script_dir}/installation/config_template.sh | tail -n1 >> ${installation_location}/new_config.sh
 CPUs=$(nproc --all)
 echo "procs=${CPUs}" >> ${installation_location}/new_config.sh
-tail -n91 ${install_script_dir}/installation/config_template.sh >> ${installation_location}/new_config.sh
+tail -n83 ${install_script_dir}/installation/config_template.sh >> ${installation_location}/new_config.sh
 echo "source ${HOME}/miniconda3/etc/profile.d/conda.sh" >> ${installation_location}/new_config.sh
 
 # Copy all scripts from this folder to install location
@@ -184,9 +184,20 @@ fi
 home_dir=$(echo $HOME)
 echo "prefix: ${home_dir}/miniconda3/envs/py36_biopython" >> ${install_script_dir}/installation/py36_biopython.yml
 echo 'export PATH=$PATH:${home_dir}/miniconda3/bin' >> ~/.bashrc
+<<<<<<< HEAD
 . ${home_dir}/.bashrc
 
 ${home_dir}/miniconda3/condabin/conda create --name py36_biopython python=3.6 biopython -y
+=======
+
+#Need to call in separate shell
+TMPFILE=${install_script_dir}/tempfile
+echo ". ${home_dir}/.bashrc" > $TMPFILE
+echo "conda create --name py36_biopython python=3.6 biopython -y" >> $TMPFILE
+bash --rcfile $TMPFILE
+
+# rm -f $TMPFILE
+>>>>>>> ff3d82f01975a7ef95e3c384e59a308c7ac63476
 
 echo -e "Installation complete. Before running the pipeline, open a new window or run the following:\n. ${home_dir}/.bashrc \n\n If you would like to view or edit parameters and settings for pipeline, please see ${installation_location}/config.sh"
 . ${home_dir}/.bashrc

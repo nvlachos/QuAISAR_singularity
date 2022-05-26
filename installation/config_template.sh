@@ -38,7 +38,7 @@ procs=4 # Number of processors
 
 #####BBDUK specific config options #####
 #requested memory size block
-bbduk_mem=Xmx20g
+bbduk_mem=Xmx2g
 #Kmer length (1-31). Larger Kmer size results in greater specificity
 bbduk_k=31
 #hamming distance
@@ -78,7 +78,7 @@ spades_phred_offset=33
 #Coverage threshold (positive float, off or auto)
 spades_cov_cutoff="auto"
 #Max memory in Gbs
-spades_max_memory=32
+spades_max_memory=8
 
 ##### ANI specific options #####
 #Max number of samples to be kept (not including source sample) when creating the mash tree
@@ -93,8 +93,6 @@ REFSEQ_date=$(echo "${REFSEQ}" | rev | cut -d'/' -f1 | rev | cut -d'_' -f2 | cut
 csstar_gapping="gapped"
 # Value used for %id cutoff in csstar (Identity % 100(p), 99(u), 98(h), 95(m), 80(low))
 csim=98
-# Value used for %id cutoff in csstar_plasFlow (Identity % 100(p), 99(u), 98(h), 95(m), 80(low))
-cpsim=40
 
 
 ##### kraken unclassified threshold ######
@@ -105,14 +103,6 @@ contamination_threshold=25
 # MiniKraken DB (smaller, but effective option)
 kraken_DB_path="${local_DBs}/kraken/minikraken_20171019_4GB"
 kraken_DB=$(echo "${kraken_DB_path}" | rev | cut -d'/' -f1 | rev)
-
-
-##### gottcha #####
-# gottcha DB
-gottcha_DB_path="${local_DBs}/gottcha/GOTTCHA_BACTERIA_c4937_k24_u30.species"
-
-#gottcha_DB_path="${local_DBs}/gottcha/GOTTCHA_BACTERIA_c4937_k24_u30__xHUMAN3x.species"
-gottcha_DB=$(echo ${gottcha_DB_path} | rev | cut -d'/' -f1 | rev)
 
 
 ##### plasmidFinder ######
